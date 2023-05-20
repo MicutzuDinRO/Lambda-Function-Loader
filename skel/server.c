@@ -57,25 +57,15 @@ static void sigint_handler(int sig)
 
 static void sigchld_handler(int sig)
 {
-	int status = 0;
-	int pid = 0;
+	pid_t pid;
+	int status;
 
-	do {
-		/*pid = waitpid(-1, &status, WNOHANG);*/
-		pid = wait(&status);
-	} while (pid >= 0 && (!WIFEXITED(status) && !WIFSIGNALED(status)));
+	while((pid = waitpid(-1, &status, WNOHANG)) > 0)
+		;
 }
 
 static void sigsegv_handler(int sig)
 {
-	got_sigsegv = 1;
-	printf("Error: %s %s ", current_lib.libname,
-			current_lib.funcname != NULL ? current_lib.funcname : "run");
-
-	if (current_lib.filename != NULL)
-		printf("%s ", current_lib.filename);
-
-	printf("could not be executed.\n");
 	exit(EXIT_FAILURE);
 }
 
@@ -85,6 +75,7 @@ static int lib_prehooks(struct lib *lib)
 	int rc;
 
 	struct sigaction segv_action;
+	memset(&segv_action, 0, sizeof(struct sigaction));
 	segv_action.sa_handler = sigsegv_handler;
 	segv_action.sa_flags = SA_NODEFER;
 	rc = sigaction(SIGSEGV, &segv_action, NULL);
@@ -218,13 +209,16 @@ int main(void)
 
 	int listenfd, connectfd;
 	struct sockaddr_un addr, raddr;
-	socklen_t raddrlen;
+	socklen_t raddrlen = sizeof(struct sockaddr_un);
 	char buffer[BUFSIZ];
 	int rc;
 	int wstatus;
 
+	memset(buffer, 0, BUFSIZ);
+
 	/* TODO - Implement server connection */
 	struct sigaction term_action;
+	memset(&term_action, 0, sizeof(struct sigaction));
 	term_action.sa_handler = sigint_handler;
 	term_action.sa_flags = SA_NODEFER;
 	rc = sigaction(SIGINT, &term_action, NULL);
@@ -232,15 +226,17 @@ int main(void)
 	DIE(rc < 0, "sigaction: ");
 
 	struct sigaction chld_action;
+	memset(&chld_action, 0, sizeof(struct sigaction));
 	chld_action.sa_handler = sigchld_handler;
 	chld_action.sa_flags = SA_NODEFER;
-	/*rc = sigaction(SIGCHLD, &chld_action, NULL);*/
-	signal(SIGCHLD, SIG_IGN);
+	rc = sigaction(SIGCHLD, &chld_action, NULL);
+	/*signal(SIGCHLD, SIG_IGN);*/
 
 	DIE(rc < 0, "sigaction: ");
 
 	listenfd = create_socket();
 
+	memset(&raddr, 0, sizeof(raddr));
 	memset(&addr, 0, sizeof(addr));
 	addr.sun_family = AF_UNIX;
 	snprintf(addr.sun_path, strlen(socket_path)+1, "%s", socket_path);
@@ -285,27 +281,39 @@ int main(void)
 
 			int tmpfd = mkstemp(sendf);
 
-			lib.libname = libname;
+			pid_t pid2 = fork();
 
-			if (strlen(functionname) > 0)
-				lib.funcname = functionname;
-			else
-				lib.funcname = NULL;
+			switch (pid2) {
+			case -1:
+				DIE(1, "fork: ");
+				break;
+			case 0:
+				lib.libname = libname;
 
-			if (strlen(filename) > 0)
-				lib.filename = filename;
-			else
-				lib.filename = NULL;
+				if (strlen(functionname) > 0)
+					lib.funcname = functionname;
+				else
+					lib.funcname = NULL;
 
-			lib.outputfile = sendf;
+				if (strlen(filename) > 0)
+					lib.filename = filename;
+				else
+					lib.filename = NULL;
 
-			current_lib = lib;
+				lib.outputfile = sendf;
 
-			ret = lib_run(&lib);
+				current_lib = lib;
+
+				ret = lib_run(&lib);
+
+				break;
+			default:
+				waitpid(pid2, NULL, 0);
+				send_size = send_socket(connectfd, sendf, 50);
+			}
 
 			/*printf("%s\n%s\n%s\n", libname, functionname, filename);*/
 
-			send_size = send_socket(connectfd, sendf, 50);
 
 			/*printf("ACCEPTED\n");*/
 
@@ -313,7 +321,7 @@ int main(void)
 			goto out;
 			break;
 		default:
-			rc = waitpid(-1, &wstatus, WNOHANG);
+			/*rc = waitpid(-1, &wstatus, WNOHANG);*/
 			close(connectfd);
 			break;
 		}
