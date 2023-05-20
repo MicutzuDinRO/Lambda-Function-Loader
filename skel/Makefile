@@ -10,7 +10,7 @@ build: outdir server client_multi client_net
 outdir:
 	@mkdir -p $(OUTPUT_DIR)
 
-server: server.o log.o libipc.so
+server: server.o log.o config.o libipc.so
 	$(CC) -o $@ $^ $(LDLIBS) $(LDFLAGS)
 
 client_%: client_%.o $(LDLIBS)
@@ -28,6 +28,9 @@ ipc.o: ipc.c ipc.h
 	$(CC) $(CFLAGS) -o $@ -c $<
 
 log.o: log.c log.h
+	$(CC) $(CFLAGS) -o $@ -c $<
+
+config.o: config.c config.h
 	$(CC) $(CFLAGS) -o $@ -c $<
 
 .PHONY: clean

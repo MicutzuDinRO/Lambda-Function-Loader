@@ -17,6 +17,7 @@
 #include "ipc.h"
 #include "server.h"
 #include "log.h"
+#include "config.h"
 
 #ifndef OUTPUTFILE_TEMPLATE
 #define OUTPUTFILE_TEMPLATE "../checker/output/out-XXXXXX"
@@ -56,6 +57,20 @@ static const char socket_path[] = "/tmp/server_socket";
 
 static int end_loop;
 static int got_sigsegv;
+
+static void usage(char **argv)
+{
+	dup2(STDERR_FILENO, STDOUT_FILENO);
+
+	printf("Usage: %s [OPTIONS]\n", argv[0]);
+	printf("Where the options are described below:\n");
+	printf("\n\t--log-level=<debug|info|warning|error>: sets the log level");
+	printf("\n\t--network | --net | --n: use network sockets instead of unix sockets");
+	printf("\n\t--config FILENAME: use the config file FILENAME");
+	printf("\n\nThe config file can have the following options:");
+	printf("\n\t<log_level | log | log-level>=<debug | info | warning | error>");
+	printf("\n\t<network | net-sockets>=<yes | true>\n\n");
+}
 
 static void sigint_handler(int sig)
 {
@@ -225,15 +240,21 @@ int main(int argc, char **argv)
 	struct sockaddr_in addrin, raddrin;
 	socklen_t raddrunlen = sizeof(struct sockaddr_un), raddrinlen = sizeof(struct sockaddr_in);
 	char buffer[BUFSIZ];
-	int rc;
-	int wstatus;
+	char config_file[200];
+	int rc, wstatus, netsock = -1;
 	int log_level = LOG_WARNING;
-	int netsock = 0;
 
 	memset(buffer, 0, BUFSIZ);
 
 	for (int i = 1; i < argc; i ++) {
-		if (!strncmp(argv[i], "--log-level", 12)) {
+		if (!strcmp(argv[i], "--help") || !strcmp(argv[i], "-h")) {
+			usage(argv);
+			exit(EXIT_SUCCESS);
+		} else if (!strncmp(argv[i], "--log-level", 12)) {
+			// log level was set through a config file
+			if (log_level != LOG_WARNING)
+				continue;
+
 			i++;
 
 			if (!strcmp(argv[i], "debug"))
@@ -244,12 +265,30 @@ int main(int argc, char **argv)
 				log_level = LOG_WARNING;
 			if (!strcmp(argv[i], "error"))
 				log_level = LOG_ERROR;
-		}
-		if (strcmp(argv[i], "--network") == 0 ||
+		} else if (strcmp(argv[i], "--network") == 0 ||
 				strcmp(argv[i], "--net") == 0 ||
-				strcmp(argv[i], "--n") == 0)
+				strcmp(argv[i], "--n") == 0 &&
+				netsock == -1) {
 			netsock = 1;
+		} else if (!strncmp(argv[i], "--config", 8)) {
+			i++;
+
+			if (strlen(argv[i]) > 200) {
+				fprintf(stderr, "Config file path too big, max 200 characters\n");
+				exit(EXIT_FAILURE);
+			}
+
+			strncpy(config_file, argv[i], 200);
+
+			parse_config_file(argv[i], &netsock, &log_level);
+		} else {
+			usage(argv);
+			exit(EXIT_FAILURE);
+		}
 	}
+
+	if (netsock == -1)
+		netsock = 0;
 
 	int log_fd = init_log(log_level, LOG_FILE);
 
@@ -266,7 +305,6 @@ int main(int argc, char **argv)
 	chld_action.sa_handler = sigchld_handler;
 	chld_action.sa_flags = SA_NODEFER;
 	rc = sigaction(SIGCHLD, &chld_action, NULL);
-	/*signal(SIGCHLD, SIG_IGN);*/
 
 	DIE(rc < 0, "sigaction: ");
 
@@ -371,6 +409,7 @@ int main(int argc, char **argv)
 		}
 	}
 
+	close(connectfd);
 	int wpid, status;
 	while ((wpid = wait(&status)) > 0);
 
