@@ -13,6 +13,7 @@
 #include <sys/wait.h>
 #include <netinet/in.h>
 #include <arpa/inet.h>
+#include <sys/resource.h>
 
 #include "ipc.h"
 #include "server.h"
@@ -66,9 +67,11 @@ static void usage(char **argv)
 	printf("Where the options are described below:\n");
 	printf("\n\t--log-level=<debug|info|warning|error>: sets the log level");
 	printf("\n\t--network | --net | --n: use network sockets instead of unix sockets");
+	printf("\n\t--show-stats: show server realtime stats");
 	printf("\n\t--config FILENAME: use the config file FILENAME");
 	printf("\n\nThe config file can have the following options:");
 	printf("\n\t<log_level | log | log-level>=<debug | info | warning | error>");
+	printf("\n\tshow-stats=<yes | true>");
 	printf("\n\t<network | net-sockets>=<yes | true>\n\n");
 }
 
@@ -91,6 +94,23 @@ static void sigsegv_handler(int sig)
 	write_log("Failed to execute, got SIGSEGV\n", LOG_WARNING);
 
 	exit(EXIT_FAILURE);
+}
+
+static void print_stats()
+{
+	int rc;
+	struct rusage usage;
+
+	rc = getrusage(RUSAGE_CHILDREN, &usage);
+
+	fprintf(stderr, "Server page faults: %ld\n",
+			usage.ru_minflt + usage.ru_majflt);
+
+	fprintf(stderr, "Server voluntary ctx switches: %ld\n",
+			usage.ru_nvcsw);
+
+	fprintf(stderr, "Server involuntary ctx switches: %ld\n",
+			usage.ru_nivcsw);
 }
 
 static int lib_prehooks(struct lib *lib)
@@ -241,7 +261,7 @@ int main(int argc, char **argv)
 	socklen_t raddrunlen = sizeof(struct sockaddr_un), raddrinlen = sizeof(struct sockaddr_in);
 	char buffer[BUFSIZ];
 	char config_file[200];
-	int rc, wstatus, netsock = -1;
+	int rc, wstatus, netsock = -1, show_stats = 0;
 	int log_level = LOG_WARNING;
 
 	memset(buffer, 0, BUFSIZ);
@@ -280,7 +300,9 @@ int main(int argc, char **argv)
 
 			strncpy(config_file, argv[i], 200);
 
-			parse_config_file(argv[i], &netsock, &log_level);
+			parse_config_file(argv[i], &netsock, &log_level, &show_stats);
+		} else if (!strcmp(argv[i], "--show-stats")) {
+			show_stats = 1;
 		} else {
 			usage(argv);
 			exit(EXIT_FAILURE);
@@ -336,6 +358,8 @@ int main(int argc, char **argv)
 	DIE(rc < 0, "listen");
 
 	while(end_loop == 0) {
+		if (show_stats != 0)
+			print_stats();
 
 		connectfd = netsock == 1 ?
 		accept(listenfd, (struct sockaddr *) &raddrin, &raddrinlen) :
