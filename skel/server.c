@@ -44,6 +44,13 @@ extern "C" {
 
 static const char socket_path[] = "/tmp/server_socket";
 
+static int end_loop;
+
+static void sigint_handler(int sig)
+{
+	end_loop = 1;
+}
+
 static int lib_prehooks(struct lib *lib)
 {
 	return 0;
@@ -144,6 +151,12 @@ int main(void)
 	int wstatus;
 
 	/* TODO - Implement server connection */
+	struct sigaction term_action;
+	term_action.sa_handler = sigint_handler;
+	term_action.sa_flags = SA_NODEFER;
+	rc = sigaction(SIGINT, &term_action, NULL);
+
+	DIE(rc < 0, "sigaction: ");
 
 	listenfd = create_socket();
 
@@ -151,16 +164,19 @@ int main(void)
 	addr.sun_family = AF_UNIX;
 	snprintf(addr.sun_path, strlen(socket_path)+1, "%s", socket_path);
 
+	unlink(socket_path);
 	rc = bind(listenfd, (struct sockaddr *) &addr, sizeof(addr));
 	DIE(rc < 0, "bind");
 
 	listen(listenfd, 50);
 	DIE(rc < 0, "listen");
 
-	while(1) {
+	while(end_loop == 0) {
 
 		connectfd = accept(listenfd, (struct sockaddr *) &raddr, &raddrlen);
-		DIE(connectfd < 0, "accept");
+		/*DIE(connectfd < 0, "accept");*/
+		if (connectfd < 0)
+			continue;
 
 		pid_t pid;
 
@@ -173,13 +189,13 @@ int main(void)
 		case 0:
 			(void)(pid);
 			ssize_t recv_size, send_size;
-			char libname[50], functionname[50], filename[50];
-			char sendf[50];
+			char libname[200], functionname[200], filename[200];
+			char sendf[200];
 
-			memset(libname, 0, 50);
-			memset(functionname, 0, 50);
-			memset(filename, 0, 50);
-			memset(sendf, 0, 50);
+			memset(libname, 0, 200);
+			memset(functionname, 0, 200);
+			memset(filename, 0, 200);
+			memset(sendf, 0, 200);
 			sprintf(sendf, "%s", OUTPUTFILE_TEMPLATE);
 
 			recv_size = recv_socket(connectfd, buffer, BUFSIZE);
@@ -189,10 +205,18 @@ int main(void)
 			int tmpfd = mkstemp(sendf);
 
 			lib.libname = libname;
-			lib.funcname = functionname;
-			lib.filename = filename;
+
+			if (strlen(functionname) > 0)
+				lib.funcname = functionname;
+			else
+				lib.funcname = NULL;
+
+			if (strlen(filename) > 0)
+				lib.filename = filename;
+			else
+				lib.filename = NULL;
+
 			lib.outputfile = sendf;
-			/*lib.fd = tmpfd;*/
 
 			ret = lib_run(&lib);
 
@@ -202,6 +226,7 @@ int main(void)
 
 			/*printf("ACCEPTED\n");*/
 
+			close(connectfd);
 			goto out;
 			break;
 		default:
@@ -216,6 +241,7 @@ int main(void)
 	}
 
 out:
+	close(listenfd);
 
 	return 0;
 }
