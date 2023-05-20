@@ -6,7 +6,9 @@
 #define SOCKET_NAME "/tmp/sohack.socket"
 
 int create_socket();
+int create_net_socket();
 int connect_socket(int);
+int connect_net_socket(int);
 ssize_t send_socket(int, const char *, size_t);
 ssize_t recv_socket(int, char *buf, size_t);
 void close_socket(int);

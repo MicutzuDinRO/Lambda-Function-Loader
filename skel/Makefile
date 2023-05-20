@@ -5,7 +5,7 @@ OUTPUT_DIR=$(abspath ../checker/output/)
 CFLAGS+=-DOUTPUT_TEMPLATE="\"$(OUTPUT_DIR)/out-XXXXXX\""
 LDLIBS=./libipc.so
 
-build: outdir server client
+build: outdir server client_multi client_net
 
 outdir:
 	@mkdir -p $(OUTPUT_DIR)
@@ -13,9 +13,9 @@ outdir:
 server: server.o log.o libipc.so
 	$(CC) -o $@ $^ $(LDLIBS) $(LDFLAGS)
 
-client: client.o $(LDLIBS)
+client_%: client_%.o $(LDLIBS)
 
-client.o: client.c
+client_%.o: client_%.c
 	$(CC) $(CFLAGS) -o $@ -c $<
 
 server.o: server.c server.h ipc.h
@@ -32,4 +32,4 @@ log.o: log.c log.h
 
 .PHONY: clean
 clean:
-	rm -rf server client *.o libipc.so $(OUTPUT_DIR)
+	rm -rf server client_net client_multi *.o libipc.so $(OUTPUT_DIR)

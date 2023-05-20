@@ -5,8 +5,13 @@
 #include <sys/un.h>
 #include <unistd.h>
 #include <errno.h>
+#include <netinet/in.h>
+#include <arpa/inet.h>
 
 #include "ipc.h"
+
+#define IP "127.0.0.1"
+#define PORT 12345
 
 #define DIE(assertion, call_description)				\
 	do {								\
@@ -30,6 +35,16 @@ int create_socket()
 	return sockfd;
 }
 
+int create_net_socket()
+{
+	int sockfd;
+	
+	sockfd = socket(AF_INET, SOCK_STREAM, 0);
+	DIE(sockfd < 0, "socket");
+
+	return sockfd;
+}
+
 int connect_socket(int fd)
 {
 	struct sockaddr_un addr;
@@ -39,6 +54,22 @@ int connect_socket(int fd)
 	memset(&addr, 0, sizeof(addr));
 	addr.sun_family = AF_UNIX;
 	snprintf(addr.sun_path, sizeof(socket_path), "%s", socket_path);
+	connectfd = connect(fd, (struct sockaddr *) &addr, sizeof(addr));
+	DIE(connectfd < 0, "connect");
+
+	return connectfd;
+}
+
+int connect_net_socket(int fd)
+{
+	struct sockaddr_in addr;
+	int connectfd;
+
+	/* Connect socket to server. */
+	memset(&addr, 0, sizeof(addr));
+	addr.sin_family = AF_INET;
+	addr.sin_port = htons(PORT);
+	addr.sin_addr.s_addr = inet_addr(IP);
 	connectfd = connect(fd, (struct sockaddr *) &addr, sizeof(addr));
 	DIE(connectfd < 0, "connect");
 

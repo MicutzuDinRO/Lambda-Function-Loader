@@ -12,7 +12,8 @@ int main(void)
 
     while(1) {
         memset(buf, 0, BUFSIZE);
-        scanf("%s", buf);
+        fgets(buf, BUFSIZE, stdin);
+        buf[strlen(buf) - 1] = '\0';
 
         if (strcmp(buf, "exit") == 0 || strcmp(buf, "quit") == 0) {
             break;
@@ -36,7 +37,7 @@ int main(void)
         memset(buf, 0, BUFSIZE);
 
         recv_socket(fd, buf, BUFSIZE);
-        buf[BUFSIZE - 1] = 0;
+        buf[BUFSIZE - 1] = '\0';
 
         printf("Output file: %s\n", buf);
 
