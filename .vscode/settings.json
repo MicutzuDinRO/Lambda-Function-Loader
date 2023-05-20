@@ -1,0 +1,8 @@
+{
+    "files.associations": {
+        "test": "plaintext",
+        "string.h": "c",
+        "dlfcn.h": "c",
+        "types.h": "c"
+    }
+}

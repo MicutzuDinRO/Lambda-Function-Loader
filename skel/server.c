@@ -11,6 +11,8 @@
 #include <sys/socket.h>
 #include <errno.h>
 #include <sys/wait.h>
+#include <netinet/in.h>
+#include <arpa/inet.h>
 
 #include "ipc.h"
 #include "server.h"
@@ -47,6 +49,8 @@ extern "C" {
 #ifdef __cplusplus
 }
 #endif
+
+static const int PORT = 12345;
 
 static const char socket_path[] = "/tmp/server_socket";
 
@@ -217,12 +221,14 @@ int main(int argc, char **argv)
 	struct lib lib;
 
 	int listenfd, connectfd;
-	struct sockaddr_un addr, raddr;
-	socklen_t raddrlen = sizeof(struct sockaddr_un);
+	struct sockaddr_un addrun, raddrun;
+	struct sockaddr_in addrin, raddrin;
+	socklen_t raddrunlen = sizeof(struct sockaddr_un), raddrinlen = sizeof(struct sockaddr_in);
 	char buffer[BUFSIZ];
 	int rc;
 	int wstatus;
 	int log_level = LOG_WARNING;
+	int netsock = 0;
 
 	memset(buffer, 0, BUFSIZ);
 
@@ -239,6 +245,10 @@ int main(int argc, char **argv)
 			if (!strcmp(argv[i], "error"))
 				log_level = LOG_ERROR;
 		}
+		if (strcmp(argv[i], "network") == 0 ||
+				strcmp(argv[i], "net") == 0 ||
+				strcmp(argv[i], "n") == 0)
+			netsock = 1;
 	}
 
 	int log_fd = init_log(log_level, LOG_FILE);
@@ -260,23 +270,39 @@ int main(int argc, char **argv)
 
 	DIE(rc < 0, "sigaction: ");
 
-	listenfd = create_socket();
+	memset(&raddrin, 0, sizeof(raddrin));
+	memset(&addrin, 0, sizeof(addrin));
+	memset(&raddrun, 0, sizeof(raddrun));
+	memset(&addrun, 0, sizeof(addrun));
 
-	memset(&raddr, 0, sizeof(raddr));
-	memset(&addr, 0, sizeof(addr));
-	addr.sun_family = AF_UNIX;
-	snprintf(addr.sun_path, strlen(socket_path)+1, "%s", socket_path);
 
-	unlink(socket_path);
-	rc = bind(listenfd, (struct sockaddr *) &addr, sizeof(addr));
-	DIE(rc < 0, "bind");
+	if (netsock == 1) {
+		listenfd = create_net_socket();
+		addrin.sin_family = AF_INET;
+		addrin.sin_addr.s_addr = htonl(INADDR_ANY);
+		addrin.sin_port = htons(PORT);
+		rc = bind(listenfd, (struct sockaddr *) &addrin, sizeof(addrin));
+		DIE(rc < 0, "bind");
+	}
+	else {
+		listenfd = create_socket();
+		addrun.sun_family = AF_UNIX;
+		snprintf(addrun.sun_path, strlen(socket_path)+1, "%s", socket_path);
+		unlink(socket_path);
+		rc = bind(listenfd, (struct sockaddr *) &addrun, sizeof(addrun));
+		DIE(rc < 0, "bind");
+	}
+
 
 	listen(listenfd, 100);
 	DIE(rc < 0, "listen");
 
 	while(end_loop == 0) {
 
-		connectfd = accept(listenfd, (struct sockaddr *) &raddr, &raddrlen);
+		connectfd = netsock == 1 ?
+		accept(listenfd, (struct sockaddr *) &raddrin, &raddrinlen) :
+		accept(listenfd, (struct sockaddr *) &raddrun, &raddrunlen);
+
 		if (connectfd < 0)
 			continue;
 
