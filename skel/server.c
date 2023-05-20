@@ -57,7 +57,6 @@ static const int PORT = 12345;
 static const char socket_path[] = "/tmp/server_socket";
 
 static int end_loop;
-static int got_sigsegv;
 
 static void usage(char **argv)
 {
@@ -98,10 +97,9 @@ static void sigsegv_handler(int sig)
 
 static void print_stats()
 {
-	int rc;
 	struct rusage usage;
 
-	rc = getrusage(RUSAGE_CHILDREN, &usage);
+	getrusage(RUSAGE_CHILDREN, &usage);
 
 	fprintf(stderr, "Server page faults: %ld\n",
 			usage.ru_minflt + usage.ru_majflt);
@@ -217,11 +215,6 @@ static int lib_close(struct lib *lib)
 	return dlclose(lib->handle);
 }
 
-static int lib_posthooks(struct lib *lib)
-{
-	return 0;
-}
-
 static int lib_run(struct lib *lib)
 {
 	int err;
@@ -242,7 +235,7 @@ static int lib_run(struct lib *lib)
 	if (err)
 		return err;
 
-	return lib_posthooks(lib);
+	return 0;
 }
 
 static int parse_command(const char *buf, char *name, char *func, char *params)
@@ -252,7 +245,6 @@ static int parse_command(const char *buf, char *name, char *func, char *params)
 
 int main(int argc, char **argv)
 {
-	int ret;
 	struct lib lib;
 
 	int listenfd, connectfd;
@@ -261,7 +253,7 @@ int main(int argc, char **argv)
 	socklen_t raddrunlen = sizeof(struct sockaddr_un), raddrinlen = sizeof(struct sockaddr_in);
 	char buffer[BUFSIZ];
 	char config_file[200];
-	int rc, wstatus, netsock = -1, show_stats = 0;
+	int rc, netsock = -1, show_stats = 0;
 	int log_level = LOG_WARNING;
 
 	memset(buffer, 0, BUFSIZ);
@@ -285,9 +277,9 @@ int main(int argc, char **argv)
 				log_level = LOG_WARNING;
 			if (!strcmp(argv[i], "error"))
 				log_level = LOG_ERROR;
-		} else if (strcmp(argv[i], "--network") == 0 ||
+		} else if ((strcmp(argv[i], "--network") == 0 ||
 				strcmp(argv[i], "--net") == 0 ||
-				strcmp(argv[i], "--n") == 0 &&
+				strcmp(argv[i], "--n") == 0) &&
 				netsock == -1) {
 			netsock = 1;
 		} else if (!strncmp(argv[i], "--config", 8)) {
@@ -378,7 +370,6 @@ int main(int argc, char **argv)
 			break;
 		case 0:
 			(void)(pid);
-			ssize_t recv_size, send_size;
 			char libname[200], functionname[200], filename[200];
 			char sendf[200];
 
@@ -388,7 +379,7 @@ int main(int argc, char **argv)
 			memset(sendf, 0, 200);
 			sprintf(sendf, "%s", OUTPUTFILE_TEMPLATE);
 
-			recv_size = recv_socket(connectfd, buffer, BUFSIZE);
+			recv_socket(connectfd, buffer, BUFSIZE);
 
 			parse_command(buffer, libname, functionname, filename);
 
@@ -415,12 +406,12 @@ int main(int argc, char **argv)
 
 				lib.outputfile = sendf;
 
-				ret = lib_run(&lib);
+				lib_run(&lib);
 
 				break;
 			default:
 				waitpid(pid2, NULL, 0);
-				send_size = send_socket(connectfd, sendf, 50);
+				send_socket(connectfd, sendf, 50);
 			}
 
 			close(connectfd);

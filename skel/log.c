@@ -31,4 +31,6 @@ int init_log(int level, char *filename)
 	log_level = level;
 
 	log_fd = open(filename, O_WRONLY | O_CREAT | O_TRUNC, 0666);
+
+	return log_fd;
 }
