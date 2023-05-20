@@ -139,13 +139,35 @@ int main(void)
 		case 0:
 			(void)(pid);
 			ssize_t recv_size, send_size;
+			char libname[50], functionname[50], filename[50];
+			char sendf[50];
+
+			memset(libname, 0, 50);
+			memset(functionname, 0, 50);
+			memset(filename, 0, 50);
+			memset(sendf, 0, 50);
+			sprintf(sendf, "%s", OUTPUTFILE_TEMPLATE);
 
 			recv_size = recv_socket(connectfd, buffer, BUFSIZE);
 
-			send_size = send_socket(connectfd, buffer, BUFSIZE);
+			parse_command(buffer, libname, functionname, filename);
+
+			int tmpfd = mkstemp(sendf);
+
+			lib.libname = libname;
+			lib.funcname = functionname;
+			lib.filename = filename;
+			/*lib.fd = tmpfd;*/
+
+			ret = lib_run(&lib);
+
+			printf("%s\n%s\n%s\n", libname, functionname, filename);
+
+			send_size = send_socket(connectfd, sendf, 50);
 
 			printf("ACCEPTED\n");
 
+			goto out;
 			break;
 		default:
 			rc = waitpid(pid, &wstatus, 0);
@@ -156,8 +178,9 @@ int main(void)
 		/* TODO - get message from client */
 		/* TODO - parse message with parse_command and populate lib */
 		/* TODO - handle request from client */
-		/*ret = lib_run(&lib);*/
 	}
+
+out:
 
 	return 0;
 }
