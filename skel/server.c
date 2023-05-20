@@ -1,5 +1,6 @@
 #include <dlfcn.h>
 #include <fcntl.h>
+#include <signal.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -45,15 +46,50 @@ extern "C" {
 static const char socket_path[] = "/tmp/server_socket";
 
 static int end_loop;
+static int got_sigsegv;
+
+static struct lib current_lib;
 
 static void sigint_handler(int sig)
 {
 	end_loop = 1;
 }
 
+static void sigchld_handler(int sig)
+{
+	int status = 0;
+	int pid = 0;
+
+	do {
+		/*pid = waitpid(-1, &status, WNOHANG);*/
+		pid = wait(&status);
+	} while (pid >= 0 && (!WIFEXITED(status) && !WIFSIGNALED(status)));
+}
+
+static void sigsegv_handler(int sig)
+{
+	got_sigsegv = 1;
+	printf("Error: %s %s ", current_lib.libname,
+			current_lib.funcname != NULL ? current_lib.funcname : "run");
+
+	if (current_lib.filename != NULL)
+		printf("%s ", current_lib.filename);
+
+	printf("could not be executed.\n");
+	exit(EXIT_FAILURE);
+}
+
 static int lib_prehooks(struct lib *lib)
 {
 	int fd;
+	int rc;
+
+	struct sigaction segv_action;
+	segv_action.sa_handler = sigsegv_handler;
+	segv_action.sa_flags = SA_NODEFER;
+	rc = sigaction(SIGSEGV, &segv_action, NULL);
+
+	DIE(rc < 0, "sigaction: ");
 
 	fd = open(lib->outputfile, O_WRONLY | O_TRUNC);
 	DIE(fd < 0, "open");
@@ -68,7 +104,7 @@ static int lib_load(struct lib *lib)
 {
 	void *rc;
 
-	rc = dlopen(lib->libname, RTLD_NOW);
+	rc = dlopen(lib->libname, RTLD_LAZY);
 
 	char *err = dlerror();
 
@@ -102,7 +138,6 @@ static int lib_execute(struct lib *lib)
 
 	char *err = dlerror();
 
-	/*DIE(err != NULL, err);*/
 	if (err != NULL) {
 		printf("Error: %s %s ", lib->libname,
 				lib->funcname != NULL ? lib->funcname : "run");
@@ -111,8 +146,6 @@ static int lib_execute(struct lib *lib)
 			printf("%s ", lib->filename);
 
 		printf("could not be executed.\n");
-		/*printf("%s\n", strerror(errno));*/
-		/*printf("%s\n", err);*/
 
 		return -1;
 	}
@@ -121,6 +154,20 @@ static int lib_execute(struct lib *lib)
 		((void (*)(void *))func)(lib->filename);
 	} else {
 		((void (*)(void))func)();
+	}
+
+	if (got_sigsegv != 0) {
+		printf("Error: %s %s ", lib->libname,
+				lib->funcname != NULL ? lib->funcname : "run");
+
+		if (lib->filename != NULL)
+			printf("%s ", lib->filename);
+
+		printf("could not be executed.\n");
+
+		fprintf(stderr, "TEST\n");
+
+		return -1;
 	}
 
 	return 0;
@@ -184,6 +231,14 @@ int main(void)
 
 	DIE(rc < 0, "sigaction: ");
 
+	struct sigaction chld_action;
+	chld_action.sa_handler = sigchld_handler;
+	chld_action.sa_flags = SA_NODEFER;
+	/*rc = sigaction(SIGCHLD, &chld_action, NULL);*/
+	signal(SIGCHLD, SIG_IGN);
+
+	DIE(rc < 0, "sigaction: ");
+
 	listenfd = create_socket();
 
 	memset(&addr, 0, sizeof(addr));
@@ -244,6 +299,8 @@ int main(void)
 
 			lib.outputfile = sendf;
 
+			current_lib = lib;
+
 			ret = lib_run(&lib);
 
 			/*printf("%s\n%s\n%s\n", libname, functionname, filename);*/
@@ -258,7 +315,6 @@ int main(void)
 		default:
 			rc = waitpid(-1, &wstatus, WNOHANG);
 			close(connectfd);
-			/*printf("%d\n", WEXITSTATUS(wstatus));*/
 			break;
 		}
 
@@ -267,9 +323,11 @@ int main(void)
 		/* TODO - handle request from client */
 	}
 
+	int wpid, status;
+	while ((wpid = wait(&status)) > 0);
+
 out:
 	close(listenfd);
-	rc = waitpid(-1, &wstatus, 0);
 
 	return 0;
 }
