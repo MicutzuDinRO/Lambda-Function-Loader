@@ -51,17 +51,51 @@ static int lib_prehooks(struct lib *lib)
 
 static int lib_load(struct lib *lib)
 {
+	void *rc;
+
+	rc = dlopen(lib->libname, RTLD_NOW);
+
+	char *err = dlerror();
+
+	DIE(err != NULL, err);
+
+	lib->handle = rc;
+
 	return 0;
 }
 
 static int lib_execute(struct lib *lib)
 {
+	void *func;
+	int fd;
+
+	fd = open(lib->outputfile, O_WRONLY | O_TRUNC);
+
+	if (lib->funcname != NULL)
+		func = dlsym(lib->handle, lib->funcname);
+	else
+		func = dlsym(lib->handle, "run");
+
+	char *err = dlerror();
+
+	DIE(err != NULL, err);
+
+	dup2(fd, STDOUT_FILENO);
+
+	if (lib->filename != NULL) {
+		((void (*)(void *))func)(lib->filename);
+	} else {
+		((void (*)(void))func)();
+	}
+
+	close(fd);
+
 	return 0;
 }
 
 static int lib_close(struct lib *lib)
 {
-	return 0;
+	return dlclose(lib->handle);
 }
 
 static int lib_posthooks(struct lib *lib)
@@ -157,21 +191,22 @@ int main(void)
 			lib.libname = libname;
 			lib.funcname = functionname;
 			lib.filename = filename;
+			lib.outputfile = sendf;
 			/*lib.fd = tmpfd;*/
 
 			ret = lib_run(&lib);
 
-			printf("%s\n%s\n%s\n", libname, functionname, filename);
+			/*printf("%s\n%s\n%s\n", libname, functionname, filename);*/
 
 			send_size = send_socket(connectfd, sendf, 50);
 
-			printf("ACCEPTED\n");
+			/*printf("ACCEPTED\n");*/
 
 			goto out;
 			break;
 		default:
 			rc = waitpid(pid, &wstatus, 0);
-			printf("%d\n", WEXITSTATUS(wstatus));
+			/*printf("%d\n", WEXITSTATUS(wstatus));*/
 			break;
 		}
 
