@@ -53,6 +53,14 @@ static void sigint_handler(int sig)
 
 static int lib_prehooks(struct lib *lib)
 {
+	int fd;
+
+	fd = open(lib->outputfile, O_WRONLY | O_TRUNC);
+	DIE(fd < 0, "open");
+
+	dup2(fd, STDOUT_FILENO);
+	close(fd);
+
 	return 0;
 }
 
@@ -64,7 +72,19 @@ static int lib_load(struct lib *lib)
 
 	char *err = dlerror();
 
-	DIE(err != NULL, err);
+	if (err != NULL) {
+		printf("Error: %s %s ", lib->libname,
+				lib->funcname != NULL ? lib->funcname : "run");
+
+		if (lib->filename != NULL)
+			printf("%s ", lib->filename);
+
+		printf("could not be executed.\n");
+		/*printf("%s\n", strerror(errno));*/
+		/*printf("%s\n", err);*/
+
+		return -1;
+	}
 
 	lib->handle = rc;
 
@@ -74,9 +94,6 @@ static int lib_load(struct lib *lib)
 static int lib_execute(struct lib *lib)
 {
 	void *func;
-	int fd;
-
-	fd = open(lib->outputfile, O_WRONLY | O_TRUNC);
 
 	if (lib->funcname != NULL)
 		func = dlsym(lib->handle, lib->funcname);
@@ -85,17 +102,26 @@ static int lib_execute(struct lib *lib)
 
 	char *err = dlerror();
 
-	DIE(err != NULL, err);
+	/*DIE(err != NULL, err);*/
+	if (err != NULL) {
+		printf("Error: %s %s ", lib->libname,
+				lib->funcname != NULL ? lib->funcname : "run");
 
-	dup2(fd, STDOUT_FILENO);
+		if (lib->filename != NULL)
+			printf("%s ", lib->filename);
+
+		printf("could not be executed.\n");
+		/*printf("%s\n", strerror(errno));*/
+		/*printf("%s\n", err);*/
+
+		return -1;
+	}
 
 	if (lib->filename != NULL) {
 		((void (*)(void *))func)(lib->filename);
 	} else {
 		((void (*)(void))func)();
 	}
-
-	close(fd);
 
 	return 0;
 }
@@ -168,7 +194,7 @@ int main(void)
 	rc = bind(listenfd, (struct sockaddr *) &addr, sizeof(addr));
 	DIE(rc < 0, "bind");
 
-	listen(listenfd, 50);
+	listen(listenfd, 100);
 	DIE(rc < 0, "listen");
 
 	while(end_loop == 0) {
@@ -230,7 +256,8 @@ int main(void)
 			goto out;
 			break;
 		default:
-			rc = waitpid(pid, &wstatus, 0);
+			rc = waitpid(-1, &wstatus, WNOHANG);
+			close(connectfd);
 			/*printf("%d\n", WEXITSTATUS(wstatus));*/
 			break;
 		}
@@ -242,6 +269,7 @@ int main(void)
 
 out:
 	close(listenfd);
+	rc = waitpid(-1, &wstatus, 0);
 
 	return 0;
 }
