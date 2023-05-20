@@ -2,7 +2,7 @@
 #include "log.h"
 #include <stdlib.h>
 
-void parse_config_file(char *configname, int *network, int *log_level)
+void parse_config_file(char *configname, int *network, int *log_level, int *show_stats)
 {
 	char buf[200];
 	char *rc = NULL;
@@ -42,6 +42,10 @@ void parse_config_file(char *configname, int *network, int *log_level)
 		} else if (!strcmp(name, "network") || !strcmp(name, "net-sockets")) {
 			if (!strcmp(value, "yes") || !strcmp(value, "true")) {
 				*network = 1;
+			}
+		} else if (!strcmp(name, "show-stats")) {
+			if (!strcmp(value, "true") || !strcmp(value, "yes")) {
+				*show_stats = 1;
 			}
 		}
 

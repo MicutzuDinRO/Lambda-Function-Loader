@@ -9,6 +9,6 @@
 #include <sys/types.h>
 #include <unistd.h>
 
-void parse_config_file(char *configname, int *network, int *log_level);
+void parse_config_file(char *configname, int *network, int *log_level, int *show_stats);
 
 #endif
