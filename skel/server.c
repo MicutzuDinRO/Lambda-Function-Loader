@@ -14,9 +14,14 @@
 
 #include "ipc.h"
 #include "server.h"
+#include "log.h"
 
 #ifndef OUTPUTFILE_TEMPLATE
 #define OUTPUTFILE_TEMPLATE "../checker/output/out-XXXXXX"
+#endif
+
+#ifndef LOG_FILE
+#define LOG_FILE "server.log"
 #endif
 
 #ifdef __cplusplus
@@ -48,8 +53,6 @@ static const char socket_path[] = "/tmp/server_socket";
 static int end_loop;
 static int got_sigsegv;
 
-static struct lib current_lib;
-
 static void sigint_handler(int sig)
 {
 	end_loop = 1;
@@ -66,6 +69,8 @@ static void sigchld_handler(int sig)
 
 static void sigsegv_handler(int sig)
 {
+	write_log("Failed to execute, got SIGSEGV\n", LOG_WARNING);
+
 	exit(EXIT_FAILURE);
 }
 
@@ -94,6 +99,10 @@ static int lib_prehooks(struct lib *lib)
 static int lib_load(struct lib *lib)
 {
 	void *rc;
+	char log[200];
+
+	sprintf(log, "Opening library: %s\n", lib->libname);
+	write_log(log, LOG_DEBUG);
 
 	rc = dlopen(lib->libname, RTLD_LAZY);
 
@@ -107,8 +116,9 @@ static int lib_load(struct lib *lib)
 			printf("%s ", lib->filename);
 
 		printf("could not be executed.\n");
-		/*printf("%s\n", strerror(errno));*/
-		/*printf("%s\n", err);*/
+
+		sprintf(log, "Failed to open: %s\n", err);
+		write_log(log, LOG_WARNING);
 
 		return -1;
 	}
@@ -121,6 +131,11 @@ static int lib_load(struct lib *lib)
 static int lib_execute(struct lib *lib)
 {
 	void *func;
+	char log[200];
+
+	sprintf(log, "Executing function: %s\n",
+			lib->funcname != NULL ? lib->funcname : "run");
+	write_log(log, LOG_INFO);
 
 	if (lib->funcname != NULL)
 		func = dlsym(lib->handle, lib->funcname);
@@ -138,6 +153,9 @@ static int lib_execute(struct lib *lib)
 
 		printf("could not be executed.\n");
 
+		sprintf(log, "Failed to execute: %s\n", err);
+		write_log(log, LOG_WARNING);
+
 		return -1;
 	}
 
@@ -147,25 +165,16 @@ static int lib_execute(struct lib *lib)
 		((void (*)(void))func)();
 	}
 
-	if (got_sigsegv != 0) {
-		printf("Error: %s %s ", lib->libname,
-				lib->funcname != NULL ? lib->funcname : "run");
-
-		if (lib->filename != NULL)
-			printf("%s ", lib->filename);
-
-		printf("could not be executed.\n");
-
-		fprintf(stderr, "TEST\n");
-
-		return -1;
-	}
-
 	return 0;
 }
 
 static int lib_close(struct lib *lib)
 {
+	char log[200];
+
+	sprintf(log, "Closing library: %s\n", lib->libname);
+	write_log(log, LOG_DEBUG);
+
 	return dlclose(lib->handle);
 }
 
@@ -202,7 +211,7 @@ static int parse_command(const char *buf, char *name, char *func, char *params)
 	return sscanf(buf, "%s %s %s", name, func, params);
 }
 
-int main(void)
+int main(int argc, char **argv)
 {
 	int ret;
 	struct lib lib;
@@ -213,10 +222,27 @@ int main(void)
 	char buffer[BUFSIZ];
 	int rc;
 	int wstatus;
+	int log_level = LOG_WARNING;
 
 	memset(buffer, 0, BUFSIZ);
 
-	/* TODO - Implement server connection */
+	for (int i = 1; i < argc; i ++) {
+		if (!strncmp(argv[i], "--log-level", 12)) {
+			i++;
+
+			if (!strcmp(argv[i], "debug"))
+				log_level = LOG_DEBUG;
+			if (!strcmp(argv[i], "info"))
+				log_level = LOG_INFO;
+			if (!strcmp(argv[i], "warning"))
+				log_level = LOG_WARNING;
+			if (!strcmp(argv[i], "error"))
+				log_level = LOG_ERROR;
+		}
+	}
+
+	int log_fd = init_log(log_level, LOG_FILE);
+
 	struct sigaction term_action;
 	memset(&term_action, 0, sizeof(struct sigaction));
 	term_action.sa_handler = sigint_handler;
@@ -251,7 +277,6 @@ int main(void)
 	while(end_loop == 0) {
 
 		connectfd = accept(listenfd, (struct sockaddr *) &raddr, &raddrlen);
-		/*DIE(connectfd < 0, "accept");*/
 		if (connectfd < 0)
 			continue;
 
@@ -279,7 +304,7 @@ int main(void)
 
 			parse_command(buffer, libname, functionname, filename);
 
-			int tmpfd = mkstemp(sendf);
+			mkstemp(sendf);
 
 			pid_t pid2 = fork();
 
@@ -302,8 +327,6 @@ int main(void)
 
 				lib.outputfile = sendf;
 
-				current_lib = lib;
-
 				ret = lib_run(&lib);
 
 				break;
@@ -311,11 +334,6 @@ int main(void)
 				waitpid(pid2, NULL, 0);
 				send_size = send_socket(connectfd, sendf, 50);
 			}
-
-			/*printf("%s\n%s\n%s\n", libname, functionname, filename);*/
-
-
-			/*printf("ACCEPTED\n");*/
 
 			close(connectfd);
 			goto out;
@@ -325,10 +343,6 @@ int main(void)
 			close(connectfd);
 			break;
 		}
-
-		/* TODO - get message from client */
-		/* TODO - parse message with parse_command and populate lib */
-		/* TODO - handle request from client */
 	}
 
 	int wpid, status;
@@ -336,6 +350,7 @@ int main(void)
 
 out:
 	close(listenfd);
+	close(log_fd);
 
 	return 0;
 }
