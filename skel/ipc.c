@@ -18,7 +18,7 @@
 		}							\
 	} while (0)
 
-static const char socket_path[] = "/tmp/hack.socket";
+static const char socket_path[] = "/tmp/server_socket";
 
 int create_socket()
 {
@@ -32,21 +32,15 @@ int create_socket()
 
 int connect_socket(int fd)
 {
-	int rc, connectfd;
-	struct sockaddr_un addr, raddr;
-	socklen_t raddrlen;
+	struct sockaddr_un addr;
+	int connectfd;
 
+	/* Connect socket to server. */
 	memset(&addr, 0, sizeof(addr));
 	addr.sun_family = AF_UNIX;
-	snprintf(addr.sun_path, strlen(socket_path)+1, "%s", socket_path);
-	rc = bind(fd, (struct sockaddr *) &addr, sizeof(addr));
-	DIE(rc < 0, "bind");
-
-	listen(fd, 50);
-	DIE(rc < 0, "listen");
-
-	connectfd = accept(fd, (struct sockaddr *) &raddr, &raddrlen);
-	DIE(connectfd < 0, "accept");
+	snprintf(addr.sun_path, sizeof(socket_path), "%s", socket_path);
+	connectfd = connect(fd, (struct sockaddr *) &addr, sizeof(addr));
+	DIE(connectfd < 0, "connect");
 
 	return connectfd;
 }
