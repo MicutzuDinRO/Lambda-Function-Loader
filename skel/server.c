@@ -245,9 +245,9 @@ int main(int argc, char **argv)
 			if (!strcmp(argv[i], "error"))
 				log_level = LOG_ERROR;
 		}
-		if (strcmp(argv[i], "network") == 0 ||
-				strcmp(argv[i], "net") == 0 ||
-				strcmp(argv[i], "n") == 0)
+		if (strcmp(argv[i], "--network") == 0 ||
+				strcmp(argv[i], "--net") == 0 ||
+				strcmp(argv[i], "--n") == 0)
 			netsock = 1;
 	}
 
